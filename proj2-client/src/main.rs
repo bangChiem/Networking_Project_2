@@ -52,17 +52,30 @@ async fn tcp_test(ip: String, port: String) -> String {
                     /*  repeatedly send data for five seconds in a loop */
                 }
 
-                if msg_parts[0] == "OK" {
+                if msg_parts[0] == "RECEIVED" {
 
                     // Calculate Mbps value using number of bytes
+                    // Update upload speed
                     let num_bytes : i32 = msg_parts[1].parse().expect("Failed to get int from string");
                     println!("Server received {} bytes", num_bytes);
 
                     // Send ready for download message
-                    let response = "OK DOWNLOAD\n";
+                    let response = "READY\n";
                     stream.write_all(response.as_bytes()).expect("Failed to send");
                 }
 
+                if msg_parts[0] == "SENDING" {
+                    // Read bytes
+                    // Calculate and update download speed
+
+                    let response = "RECEIVED\n";
+                    stream.write_all(response.as_bytes()).unwrap();
+                }
+
+                if msg == "CLOSE" {
+                    // End connection with server
+                    break;
+                }
 
             }
             Err(e) => {

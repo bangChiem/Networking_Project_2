@@ -58,7 +58,7 @@ fn handle_8080(mut stream: TcpStream){
             Ok(_) => {
 
                 let msg = msg.trim();
-                let _msg_parts: Vec<&str> = msg.split_whitespace().collect();
+                let msg_parts: Vec<&str> = msg.split_whitespace().collect();
 
                 println!("Received from client: {}", msg);
 
@@ -67,18 +67,27 @@ fn handle_8080(mut stream: TcpStream){
                     stream.write_all(response.as_bytes()).expect("Failed to send message to client");
                 }
 
-                if msg == "SENDING 5" {
+                if msg_parts[0] == "SENDING" {
                     // recieve data for 5 seconds
                     
 
                     // count bytes and send back value
                     let num_bytes = 300;
-                    let response = format!("OK {}\n", num_bytes);
+                    let response = format!("RECEIVED {}\n", num_bytes);
                     stream.write_all(response.as_bytes()).unwrap();
                 }
 
-                if msg == "OK DOWNLOAD" {
+                if msg == "READY" {
                     // send data for five seconds
+                    let response = "SENDING\n";
+                    stream.write_all(response.as_bytes()).unwrap();
+
+                    /* send bytes in a loop for five seconds */
+                }
+
+                if msg_parts[0] == "RECEIVED" {
+                    let response = "CLOSE\n";
+                    stream.write_all(response.as_bytes()).unwrap();
                 }
 
             }
