@@ -5,8 +5,9 @@ use iced::{
 };
 
 use std::{
-    net::{TcpStream, UdpSocket},
+    net::{TcpStream, UdpSocket, Shutdown},
     io::{BufReader, prelude::*},
+    time::{Duration, Instant}
 };
 
 fn main() -> iced::Result {
@@ -27,9 +28,13 @@ async fn tcp_test(ip: String, port: String) -> String {
     let response = "HELLO TCP\n";
     stream.write_all(response.as_bytes()).expect("Failed to send");
 
-    // Read server acknowledgement
+    // Set up buffer
     let mut buf_reader = BufReader::new(stream.try_clone().unwrap());
 
+    // Decide number of seconds to send data
+    let num_seconds = 5;
+
+    // Loop while connection is open
     loop {
 
         let mut msg = String::new();
@@ -46,18 +51,38 @@ async fn tcp_test(ip: String, port: String) -> String {
                 println!("Received from server: {}", msg);
 
                 if msg == "READY" {
-                    // Send data for 5 seconds
-                    let response = "SENDING 5\n";
+                    // Send data for _ seconds
+                    let response = format!("SENDING {}\n", num_seconds);
                     stream.write_all(response.as_bytes()).expect("Failed to send");
-                    /*  repeatedly send data for five seconds in a loop */
+
+                    // Create start and end times
+                    let start = Instant::now();
+                    let duration = Duration::from_secs(num_seconds);
+
+                    // Set up data to send
+                    let data = vec![0; 1024]; // 1 KB of 0s
+
+                    // loop until the duration has passed
+                    while start.elapsed().as_secs_f64() < 5.0 {
+                        stream.write_all(&data).unwrap();
+                    }
+
+                    let eof = "UPLOAD_DONE\n";
+                    stream.write_all(eof.as_bytes()).unwrap();
+
                 }
 
                 if msg_parts[0] == "RECEIVED" {
 
-                    // Calculate Mbps value using number of bytes
-                    // Update upload speed
-                    let num_bytes : i32 = msg_parts[1].parse().expect("Failed to get int from string");
+                    // Get number of bytes from server
+                    let num_bytes : u64 = msg_parts[1].parse().expect("Failed to get int from string");
                     println!("Server received {} bytes", num_bytes);
+
+                    // Calculate Mbps
+                    let bits= (num_bytes as f64) * 8.0;
+                    let mega_bits = bits * 0.000001;
+                    let mega_bps = mega_bits / (num_seconds as f64);
+                    println!("Upload speed: {:.2} Mbps", mega_bps);
 
                     // Send ready for download message
                     let response = "READY\n";

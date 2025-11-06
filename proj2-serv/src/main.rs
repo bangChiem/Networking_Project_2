@@ -69,10 +69,26 @@ fn handle_8080(mut stream: TcpStream){
 
                 if msg_parts[0] == "SENDING" {
                     // recieve data for 5 seconds
-                    
+                    let mut num_bytes: usize = 0;
 
-                    // count bytes and send back value
-                    let num_bytes = 300;
+                    // count bytes
+                    loop {
+                        let mut buf = [0u8; 1024]; // 100 bytes at a time
+                        let n = stream.read(&mut buf).unwrap();
+                        if n == 0 { break; } // connection closed
+
+                        num_bytes += n;
+
+                        // peek into buffer to check for sentinel message
+                        if buf[..n].ends_with(b"UPLOAD_DONE\n") {
+                            // subtract sentinel bytes
+                            num_bytes -= "UPLOAD_DONE\n".len();
+                            break;
+                        }
+
+                    }
+
+                    // send back value
                     let response = format!("RECEIVED {}\n", num_bytes);
                     stream.write_all(response.as_bytes()).unwrap();
                 }
