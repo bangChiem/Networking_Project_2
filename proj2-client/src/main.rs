@@ -17,6 +17,14 @@ fn main() -> iced::Result {
         .run_with(|| NetworkConfigApp::new())
 }
 
+/* function to calculate value as test runs (every 0.5 secs) */
+fn calculate_mega_bps(bytes: u64, secs: f64) -> f64 {
+    let bits= (bytes as f64) * 8.0;
+    let mega_bits = bits * 0.000001;
+    let mega_bps = mega_bits / (secs as f64);
+    mega_bps
+}
+
 async fn tcp_test(ip: String, port: String) -> String {
 
     println!("Testing on TCP");
@@ -78,9 +86,7 @@ async fn tcp_test(ip: String, port: String) -> String {
                     println!("Server received {} bytes", num_bytes);
 
                     // Calculate Mbps
-                    let bits= (num_bytes as f64) * 8.0;
-                    let mega_bits = bits * 0.000001;
-                    let mega_bps = mega_bits / (num_seconds as f64);
+                    let mega_bps = calculate_mega_bps(num_bytes, 5.0);
                     println!("Upload speed: {:.2} Mbps", mega_bps);
 
                     // Send ready for download message
@@ -92,9 +98,11 @@ async fn tcp_test(ip: String, port: String) -> String {
 
                     let mut num_bytes: usize = 0;
 
+                    let start = Instant::now();
+
                     // count bytes
                     loop {
-                        let mut buf = [0u8; 1024 * 3]; // 3KB bytes at a time
+                        let mut buf = [0u8; 1024 * 8]; // 8KB bytes at a time
                         let n = stream.read(&mut buf).unwrap();
                         if n == 0 { break; } // connection closed
 
@@ -109,9 +117,7 @@ async fn tcp_test(ip: String, port: String) -> String {
                     }
 
                     // calculate download speed and display
-                    let bits= (num_bytes as f64) * 8.0;
-                    let mega_bits = bits * 0.000001;
-                    let mega_bps = mega_bits / (num_seconds as f64);
+                    let mega_bps = calculate_mega_bps(num_bytes as u64, num_seconds as f64);
                     println!("Download speed: {:.2} Mbps", mega_bps);
                     
                     let response = format!("RECEIVED {}\n", num_bytes);

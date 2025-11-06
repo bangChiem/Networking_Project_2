@@ -74,7 +74,7 @@ fn handle_8080(mut stream: TcpStream){
 
                     // count bytes
                     loop {
-                        let mut buf = [0u8; 1024 * 3]; // 3KB at a time
+                        let mut buf = [0u8; 1024 * 8]; // 8KB at a time
                         let n = stream.read(&mut buf).unwrap();
                         if n == 0 { break; } // connection closed
 
