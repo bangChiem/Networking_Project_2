@@ -7,7 +7,7 @@ use iced::{
 use std::{
     net::{TcpStream, UdpSocket, Shutdown},
     io::{BufReader, prelude::*},
-    time::{Duration, Instant}
+    time::Instant
 };
 
 fn main() -> iced::Result {
@@ -57,7 +57,6 @@ async fn tcp_test(ip: String, port: String) -> String {
 
                     // Create start and end times
                     let start = Instant::now();
-                    let duration = Duration::from_secs(num_seconds);
 
                     // Set up data to send
                     let data = vec![0; 1024]; // 1 KB of 0s
@@ -90,15 +89,37 @@ async fn tcp_test(ip: String, port: String) -> String {
                 }
 
                 if msg_parts[0] == "SENDING" {
-                    // Read bytes
-                    // Calculate and update download speed
 
-                    let response = "RECEIVED\n";
+                    let mut num_bytes: usize = 0;
+
+                    // count bytes
+                    loop {
+                        let mut buf = [0u8; 1024 * 3]; // 3KB bytes at a time
+                        let n = stream.read(&mut buf).unwrap();
+                        if n == 0 { break; } // connection closed
+
+                        num_bytes += n;
+
+                        // peek into buffer to check for message
+                        if buf[..n].ends_with(b"UPLOAD_DONE\n") {
+                            // subtract bytes from message
+                            num_bytes -= "UPLOAD_DONE\n".len();
+                            break;
+                        }
+                    }
+
+                    // calculate download speed and display
+                    let bits= (num_bytes as f64) * 8.0;
+                    let mega_bits = bits * 0.000001;
+                    let mega_bps = mega_bits / (num_seconds as f64);
+                    println!("Download speed: {:.2} Mbps", mega_bps);
+                    
+                    let response = format!("RECEIVED {}\n", num_bytes);
                     stream.write_all(response.as_bytes()).unwrap();
                 }
 
                 if msg == "CLOSE" {
-                    // End connection with server
+                    // Server ends connection
                     break;
                 }
 

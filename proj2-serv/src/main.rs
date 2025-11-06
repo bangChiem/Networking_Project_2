@@ -1,7 +1,8 @@
 use std::{
     thread,
     io::{BufReader, prelude::*},
-    net::{TcpListener, TcpStream, UdpSocket},
+    net::{TcpListener, TcpStream, UdpSocket, Shutdown},
+    time::Instant,
 };
 
 fn main() {
@@ -73,15 +74,15 @@ fn handle_8080(mut stream: TcpStream){
 
                     // count bytes
                     loop {
-                        let mut buf = [0u8; 1024]; // 100 bytes at a time
+                        let mut buf = [0u8; 1024 * 3]; // 3KB at a time
                         let n = stream.read(&mut buf).unwrap();
                         if n == 0 { break; } // connection closed
 
                         num_bytes += n;
 
-                        // peek into buffer to check for sentinel message
+                        // peek into buffer to check for message
                         if buf[..n].ends_with(b"UPLOAD_DONE\n") {
-                            // subtract sentinel bytes
+                            // subtract bytes from message
                             num_bytes -= "UPLOAD_DONE\n".len();
                             break;
                         }
@@ -99,11 +100,27 @@ fn handle_8080(mut stream: TcpStream){
                     stream.write_all(response.as_bytes()).unwrap();
 
                     /* send bytes in a loop for five seconds */
+
+                    // Create start and end times
+                    let start = Instant::now();
+
+                    // Set up data to send
+                    let data = vec![0; 1024]; // 1 KB of 0s
+
+                    // loop until the duration has passed
+                    while start.elapsed().as_secs_f64() < 5.0 {
+                        stream.write_all(&data).unwrap();
+                    }
+
+                    let eof = "UPLOAD_DONE\n";
+                    stream.write_all(eof.as_bytes()).unwrap();
+
                 }
 
                 if msg_parts[0] == "RECEIVED" {
                     let response = "CLOSE\n";
                     stream.write_all(response.as_bytes()).unwrap();
+                    stream.shutdown(Shutdown::Both).unwrap();
                 }
 
             }
