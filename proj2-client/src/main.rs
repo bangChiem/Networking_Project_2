@@ -144,8 +144,10 @@ async fn tcp_test(ip: String, port: String) -> String {
 
 }
 
-fn _udp_test(_ip: String, _port: String){
+async fn udp_test(_ip: String, _port: String) -> String{
     println!("Testing on UDP");
+    // actual udp testing
+    "UDP test test complete".to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +157,7 @@ pub enum Message {
     ProtocolToggled(bool),
     Connect,
     TCPFinished(String),
+    UDPFinished(String), 
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -214,13 +217,24 @@ impl NetworkConfigApp {
                     "Connecting to {}:{} using {}",
                     ip, port, protocol
                 );
-                return Task::perform(
-                    tcp_test(ip, port),
-                    Message::TCPFinished
-                );
+                
+                if self.is_tcp {
+                    return Task::perform(
+                        tcp_test(ip, port),
+                        Message::TCPFinished
+                    );
+                } else {
+                    return Task::perform(
+                        udp_test(ip, port),
+                        Message::UDPFinished
+                    );
+                }
             }
-            Message::TCPFinished(result) => {
+            Message::TCPFinished(result) => {  // Add this handler
                 println!("TCP testing complete: {}", result);
+            }
+            Message::UDPFinished(result) => {  // Add this handler
+                println!("UDP testing complete: {}", result);
             }
         }
         Task::none()

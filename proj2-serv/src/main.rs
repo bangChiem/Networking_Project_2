@@ -138,9 +138,10 @@ fn handle_8080(mut stream: TcpStream){
 // Handles connections on port 7070 (UDP)
 // Creates UDP socket inside for actual data transfer
 fn handle_7070(stream: TcpStream){
-    let _buf_reader = BufReader::new(&stream);
+    // let _buf_reader = BufReader::new(&stream);
 
-    let socket = UdpSocket::bind("0.0.0.0").unwrap();
-    let _port_num = socket.local_addr().unwrap().port();
+    // let socket = UdpSocket::bind("0.0.0.0").unwrap();
+    // let _port_num = socket.local_addr().unwrap().port();
+    println!("server UDP")
 
 }
