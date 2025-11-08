@@ -5,9 +5,7 @@ use iced::{
 };
 
 use std::{
-    net::{TcpStream, UdpSocket, Shutdown},
-    io::{BufReader, prelude::*},
-    time::Instant
+    fmt::Error, io::{self, Read, BufReader, Result, prelude::*}, net::{Shutdown, TcpStream, UdpSocket}, string::FromUtf8Error, time::Instant
 };
 
 fn main() -> iced::Result {
@@ -25,6 +23,30 @@ fn calculate_mega_bps(bytes: u64, secs: f64) -> f64 {
     mega_bps
 }
 
+fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
+    let mut total_bytes = 0u64;
+    let mut buffer = [0; 1];
+
+    loop {
+        let bytes_read = stream.read(&mut buffer)?;
+        if bytes_read == 0 {
+            // EOF
+            break;
+        }
+
+        let byte = buffer[0];
+        total_bytes += 1;
+
+        buf.push(byte as char);
+
+        if byte == b'\n' {
+            break;
+        }
+    }
+
+    Ok(total_bytes as usize)
+}
+
 async fn tcp_test(ip: String, port: String) -> String {
 
     println!("Testing on TCP");
@@ -35,10 +57,7 @@ async fn tcp_test(ip: String, port: String) -> String {
     // Send initial message
     let response = "HELLO TCP\n";
     stream.write_all(response.as_bytes()).expect("Failed to send");
-
-    // Set up buffer
-    let mut buf_reader = BufReader::new(stream.try_clone().unwrap());
-
+    
     // Decide number of seconds to send data
     let num_seconds = 5;
 
@@ -46,7 +65,7 @@ async fn tcp_test(ip: String, port: String) -> String {
     loop {
 
         let mut msg = String::new();
-        match buf_reader.read_line(&mut msg) {
+        match read_line(&mut stream, &mut msg) {
 
             Ok(0) => {
                 break;
