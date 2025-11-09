@@ -1,6 +1,6 @@
 use std::{
     thread,
-    io::{BufReader, prelude::*},
+    io::{self, BufReader, prelude::*},
     net::{TcpListener, TcpStream, UdpSocket, Shutdown},
     time::Instant,
 };
@@ -45,13 +45,37 @@ fn main() {
     
 }
 
+fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
+    let mut total_bytes = 0u64;
+    let mut buffer = [0; 1];
+
+    loop {
+        let bytes_read = stream.read(&mut buffer)?;
+        if bytes_read == 0 {
+            // EOF
+            break;
+        }
+
+        let byte = buffer[0];
+        total_bytes += 1;
+
+        buf.push(byte as char);
+
+        if byte == b'\n' {
+            break;
+        }
+    }
+
+    Ok(total_bytes as usize)
+}
+
 // Handles connections on port 8080 (TCP)
 fn handle_8080(mut stream: TcpStream){
     let mut buf_reader = BufReader::new(stream.try_clone().unwrap());
 
     loop {
         let mut msg = String::new();
-        match buf_reader.read_line(&mut msg) {
+        match read_line(&mut stream, &mut msg) {
             Ok(0) => {
                 println!("Connection to client ended");
                 break;
@@ -98,6 +122,7 @@ fn handle_8080(mut stream: TcpStream){
                     // send data for five seconds
                     let response = "SENDING\n";
                     stream.write_all(response.as_bytes()).unwrap();
+                    stream.flush().unwrap();
 
                     /* send bytes in a loop for five seconds */
 
@@ -114,6 +139,7 @@ fn handle_8080(mut stream: TcpStream){
 
                     let eof = "UPLOAD_DONE\n";
                     stream.write_all(eof.as_bytes()).unwrap();
+                    stream.flush().unwrap();
 
                 }
 
