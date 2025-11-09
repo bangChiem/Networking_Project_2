@@ -25,18 +25,15 @@ fn main() {
         }
     });
 
+    let socket_7070 = UdpSocket::bind("0.0.0.0:7070").expect("Could not bind to port 7070");
+    socket_7070
+    .set_nonblocking(true)
+    .expect("Failed to set non-blocking");
+
+
     let thread_7070 = thread::spawn(move || {
-        for stream in listener_7070.incoming(){
-            match stream {
-                Ok(stream) => {
-                    thread::spawn(move || {
-                        handle_7070(stream);
-                    });
-                }
-                Err(e) => {
-                    eprintln!("Error handling client on port 7070: {}", e);
-                }
-            }
+        loop {
+            handle_7070(&socket_7070);
         }
     });
 
@@ -137,11 +134,25 @@ fn handle_8080(mut stream: TcpStream){
 
 // Handles connections on port 7070 (UDP)
 // Creates UDP socket inside for actual data transfer
-fn handle_7070(stream: TcpStream){
-    // let _buf_reader = BufReader::new(&stream);
+fn handle_7070(socket: &UdpSocket) {
+    let mut buf = [0u8; 1024];
 
-    // let socket = UdpSocket::bind("0.0.0.0").unwrap();
-    // let _port_num = socket.local_addr().unwrap().port();
-    println!("server UDP")
+    match socket.recv_from(&mut buf) {
+        Ok((size, src)) => {
+            let msg = String::from_utf8_lossy(&buf[..size]);
+            println!("Received from {}: {}", src, msg);
 
+            let reply = format!("Server received: {}", msg);
+            if let Err(e) = socket.send_to(reply.as_bytes(), &src) {
+                eprintln!("Failed to send reply: {}", e);
+            } else {
+                println!("Replied to {}", src);
+            }
+        }
+        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            // No message yet — just wait a bit and try again
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        Err(e) => eprintln!("Failed to receive data: {}", e),
+    }
 }

@@ -144,10 +144,36 @@ async fn tcp_test(ip: String, port: String) -> String {
 
 }
 
-async fn udp_test(_ip: String, _port: String) -> String{
+fn udp_test(ip: String, port: String) -> String{
     println!("Testing on UDP");
-    // actual udp testing
-    "UDP test test complete".to_string()
+
+    let addr = format!("{}:{}", ip, port);
+
+    // Step 1: Bind to a local port (0 means "any available")
+    let socket = match UdpSocket::bind("0.0.0.0:0") {
+        Ok(s) => s,
+        Err(e) => return format!("Failed to bind UDP socket: {}", e),
+    };
+
+    // Step 2: Connect logically to the server
+    if let Err(e) = socket.connect(&addr) {
+        return format!("Failed to connect to {}: {}", addr, e);
+    }
+
+    // Step 3: Send data
+    let msg = b"Hello from UDP client!";
+    if let Err(e) = socket.send(msg) {
+        return format!("Failed to send data: {}", e);
+    }
+
+    // Step 4: Receive data
+    let mut buf = [0u8; 1024];
+    let response = match socket.recv(&mut buf) {
+        Ok(n) => String::from_utf8_lossy(&buf[..n]).to_string(),
+        Err(e) => return format!("Failed to receive response: {}", e),
+    };
+
+    format!("Received from {}: {}", addr, response)
 }
 
 #[derive(Debug, Clone)]
@@ -225,7 +251,7 @@ impl NetworkConfigApp {
                     );
                 } else {
                     return Task::perform(
-                        udp_test(ip, port),
+                        async move { udp_test(ip, port) },
                         Message::UDPFinished
                     );
                 }
