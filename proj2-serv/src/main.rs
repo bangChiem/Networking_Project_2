@@ -1,6 +1,6 @@
 use std::{
     thread,
-    io::{self, BufReader, prelude::*},
+    io::{self, prelude::*},
     net::{TcpListener, TcpStream, UdpSocket, Shutdown},
     time::{Instant, Duration},
 };
@@ -8,7 +8,6 @@ use std::{
 fn main() {
 
     let listener_8080 = TcpListener::bind("0.0.0.0:8080").unwrap();
-    let listener_7070 = TcpListener::bind("0.0.0.0:7070").unwrap();
 
     let thread_8080 = thread::spawn(move || {
         for stream in listener_8080.incoming(){
@@ -30,7 +29,6 @@ fn main() {
     .set_nonblocking(true)
     .expect("Failed to set non-blocking");
 
-
     let thread_7070 = thread::spawn(move || {
         loop {
             handle_7070(&socket_7070);
@@ -49,19 +47,14 @@ fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
 
     loop {
         let bytes_read = stream.read(&mut buffer)?;
-        if bytes_read == 0 {
-            // EOF
-            break;
-        }
+        if bytes_read == 0 { break; }
 
         let byte = buffer[0];
         total_bytes += 1;
 
         buf.push(byte as char);
 
-        if byte == b'\n' {
-            break;
-        }
+        if byte == b'\n' { break; }
     }
 
     Ok(total_bytes as usize)
@@ -69,7 +62,6 @@ fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
 
 // Handles connections on port 8080 (TCP)
 fn handle_8080(mut stream: TcpStream){
-    let mut buf_reader = BufReader::new(stream.try_clone().unwrap());
 
     loop {
         let mut msg = String::new();
