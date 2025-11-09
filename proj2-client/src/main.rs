@@ -5,8 +5,8 @@ use iced::{
 };
 
 use std::{
-    net::{TcpStream, UdpSocket, Shutdown},
-    io::{self, BufReader, prelude::*},
+    net::{TcpStream, UdpSocket},
+    io::{self, prelude::*},
     time::{Instant, Duration},
 };
 
@@ -50,7 +50,7 @@ fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
     Ok(total_bytes as usize)
 }
 
-async fn tcp_test(ip: String, port: String) -> String {
+fn tcp_test(ip: String, port: String) -> String {
 
     println!("Testing on TCP");
 
@@ -63,6 +63,9 @@ async fn tcp_test(ip: String, port: String) -> String {
     
     // Decide number of seconds to send data
     let num_seconds = 5;
+
+    //let upload_speed: f64 = 0.0;
+    //let download_speed: f64 = 0.0;
 
     // Loop while connection is open
     loop {
@@ -87,13 +90,29 @@ async fn tcp_test(ip: String, port: String) -> String {
 
                     // Create start and end times
                     let start = Instant::now();
+                    let mut last_report = start;
 
                     // Set up data to send
                     let data = vec![0; 1024]; // 1 KB of 0s
+                    let mut num_bytes = 0;
 
                     // loop until the duration has passed
                     while start.elapsed().as_secs_f64() < 5.0 {
                         stream.write_all(&data).unwrap();
+                        num_bytes += &data.len();
+
+                        // Every 0.5 seconds, report download rates
+                        let now = Instant::now();
+                        if now.duration_since(last_report) >= Duration::from_millis(500) {
+                            let elapsed_secs = now.duration_since(start).as_secs_f64();
+                            let upload_mbps = calculate_mega_bps(num_bytes as u64, elapsed_secs);
+
+                            println!(
+                                "Time Elapsed {:.1}s | Upload: 0.0 Mbps | Download: {:.3} Mbps",
+                                elapsed_secs, upload_mbps
+                            );
+                            last_report = now;
+                        }
                     }
 
                     let eof = "UPLOAD_DONE\n";
@@ -121,6 +140,7 @@ async fn tcp_test(ip: String, port: String) -> String {
                     let mut num_bytes: usize = 0;
 
                     let start = Instant::now();
+                    let mut last_report = start;
 
                     // count bytes
                     loop {
@@ -135,6 +155,19 @@ async fn tcp_test(ip: String, port: String) -> String {
                             // subtract bytes from message
                             num_bytes -= "UPLOAD_DONE\n".len();
                             break;
+                        }
+
+                        // Every 0.5 seconds, report download rates
+                        let now = Instant::now();
+                        if now.duration_since(last_report) >= Duration::from_millis(500) {
+                            let elapsed_secs = now.duration_since(start).as_secs_f64();
+                            let download_mbps = calculate_mega_bps(num_bytes as u64, elapsed_secs);
+
+                            println!(
+                                "Time Elapsed {:.1}s | Upload: 0.0 Mbps | Download: {:.3} Mbps",
+                                elapsed_secs, download_mbps
+                            );
+                            last_report = now;
                         }
                     }
 
@@ -342,7 +375,7 @@ impl NetworkConfigApp {
                 
                 if self.is_tcp {
                     return Task::perform(
-                        tcp_test(ip, port),
+                        async move { tcp_test(ip, port) },
                         Message::TCPFinished
                     );
                 } else {
