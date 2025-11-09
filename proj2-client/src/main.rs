@@ -7,7 +7,7 @@ use iced::{
 use std::{
     net::{TcpStream, UdpSocket, Shutdown},
     io::{BufReader, prelude::*},
-    time::Instant
+    time::{Instant, Duration},
 };
 
 fn main() -> iced::Result {
@@ -144,37 +144,111 @@ async fn tcp_test(ip: String, port: String) -> String {
 
 }
 
-fn udp_test(ip: String, port: String) -> String{
-    println!("Testing on UDP");
+fn udp_test(ip: String, port: String) -> String {
+    let socket = UdpSocket::bind("0.0.0.0:0").expect("Couldn't bind UDP socket");
+    socket
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("Couldn't set read timeout");
 
-    let addr = format!("{}:{}", ip, port);
+    let server_addr = format!("{}:{}", ip, port);
+    println!("Starting UDP test with server at {}", server_addr);
 
-    // Step 1: Bind to a local port (0 means "any available")
-    let socket = match UdpSocket::bind("0.0.0.0:0") {
-        Ok(s) => s,
-        Err(e) => return format!("Failed to bind UDP socket: {}", e),
-    };
+    let mut recv_buf = [0u8; 8192];
 
-    // Step 2: Connect logically to the server
-    if let Err(e) = socket.connect(&addr) {
-        return format!("Failed to connect to {}: {}", addr, e);
+    /* ---------------------------- UPLOAD TEST ---------------------------- */
+    println!("Starting upload test (server → client) for 5 seconds...");
+    let _ = socket.send_to(b"START_UPLOAD\n", &server_addr);
+
+    let start_ul = Instant::now();
+    let mut last_report: Instant = start_ul;
+    let mut bytes_received: u64 = 0;
+    let mut bytes_sent: u64 = 0; 
+
+
+    while start_ul.elapsed() < Duration::from_secs(6) {
+        match socket.recv_from(&mut recv_buf) {
+            Ok((size, _src)) => {
+                if recv_buf[..size].ends_with(b"UPLOAD_DONE\n") {
+                    break;
+                }
+                bytes_sent += size as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => {
+                eprintln!("Receive error: {}", e);
+                break;
+            }
+        }
+
+        // Every 0.5 seconds, report upload/download rates
+        let now = Instant::now();
+        if now.duration_since(last_report) >= Duration::from_millis(500) {
+            let elapsed_secs = now.duration_since(start_ul).as_secs_f64();
+            let upload_mbps = calculate_mega_bps(bytes_sent, elapsed_secs);
+            let download_mbps = calculate_mega_bps(bytes_received, elapsed_secs);
+
+            println!(
+                "Time Elapsed {:.1}s | Upload: {:.3} Mbps | Download: {:.3} Mbps",
+                elapsed_secs, upload_mbps, download_mbps
+            );
+            last_report = now;
+        }
     }
 
-    // Step 3: Send data
-    let msg = b"Hello from UDP client!";
-    if let Err(e) = socket.send(msg) {
-        return format!("Failed to send data: {}", e);
+    let total_ul_secs = start_ul.elapsed().as_secs_f64();
+    let upload_mbps = calculate_mega_bps(bytes_sent, total_ul_secs);
+    println!("Upload phase done → Upload: {:.3} Mbps", upload_mbps);
+
+    /* ---------------------------- DOWNLOAD TEST ---------------------------- */
+    std::thread::sleep(Duration::from_secs(1)); // short gap
+
+    let _ = socket.send_to(b"READY_FOR_DOWNLOAD\n", &server_addr);
+    println!("Starting download test (server → client) for 5 seconds...");
+
+    let start_dl = Instant::now();
+    let mut bytes_received: u64 = 0;
+    bytes_sent = 0;
+
+    while start_dl.elapsed() < Duration::from_secs(6) {
+        match socket.recv_from(&mut recv_buf) {
+            Ok((size, _src)) => {
+                if recv_buf[..size].ends_with(b"DOWNLOAD_DONE\n") {
+                    break;
+                }
+                bytes_received += size as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => {
+                eprintln!("Receive error: {}", e);
+                break;
+            }
+        }
+
+        // Every 0.5 seconds, report upload/download rates
+        let now = Instant::now();
+        if now.duration_since(last_report) >= Duration::from_millis(500) {
+            let elapsed_secs = now.duration_since(start_ul).as_secs_f64();
+            let upload_mbps = calculate_mega_bps(bytes_sent, elapsed_secs);
+            let download_mbps = calculate_mega_bps(bytes_received, elapsed_secs);
+
+            println!(
+                "Time Elapsed {:.1}s | Upload: {:.3} Mbps | Download: {:.3} Mbps",
+                elapsed_secs, upload_mbps, download_mbps
+            );
+            last_report = now;
+        }
     }
 
-    // Step 4: Receive data
-    let mut buf = [0u8; 1024];
-    let response = match socket.recv(&mut buf) {
-        Ok(n) => String::from_utf8_lossy(&buf[..n]).to_string(),
-        Err(e) => return format!("Failed to receive response: {}", e),
-    };
+    let total_dl_secs = start_dl.elapsed().as_secs_f64();
+    let download_mbps = calculate_mega_bps(bytes_received, total_dl_secs);
+    println!("Download phase done → Download: {:.3} Mbps", download_mbps);
 
-    format!("Received from {}: {}", addr, response)
+    format!(
+        "UDP test complete.\nUpload: {:.3} Mbps\nDownload: {:.3} Mbps",
+        upload_mbps, download_mbps
+    )
 }
+
 
 #[derive(Debug, Clone)]
 pub enum Message {

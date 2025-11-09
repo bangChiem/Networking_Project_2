@@ -2,7 +2,7 @@ use std::{
     thread,
     io::{BufReader, prelude::*},
     net::{TcpListener, TcpStream, UdpSocket, Shutdown},
-    time::Instant,
+    time::{Instant, Duration},
 };
 
 fn main() {
@@ -132,27 +132,78 @@ fn handle_8080(mut stream: TcpStream){
 
 }
 
-// Handles connections on port 7070 (UDP)
-// Creates UDP socket inside for actual data transfer
 fn handle_7070(socket: &UdpSocket) {
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; 8192];
+    println!("UDP server listening on {}", socket.local_addr().unwrap());
 
-    match socket.recv_from(&mut buf) {
-        Ok((size, src)) => {
-            let msg = String::from_utf8_lossy(&buf[..size]);
-            println!("Received from {}: {}", src, msg);
+    loop {
+        match socket.recv_from(&mut buf) {
+            Ok((size, src)) => {
+                // Handle control messages
+                if buf[..size].ends_with(b"START_UPLOAD\n") {
+                    println!("Client {} requested upload test", src);
+                    run_udp_upload(socket, src);
+                    println!("Upload phase complete.");
+                    continue;
+                }
 
-            let reply = format!("Server received: {}", msg);
-            if let Err(e) = socket.send_to(reply.as_bytes(), &src) {
-                eprintln!("Failed to send reply: {}", e);
-            } else {
-                println!("Replied to {}", src);
+                if buf[..size].ends_with(b"READY_FOR_DOWNLOAD\n") {
+                    println!("Client {} ready for download phase", src);
+                    run_udp_download(socket, src);
+                    println!("Download phase complete.");
+                    break;
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => {
+                eprintln!("UDP server error: {}", e);
+                break;
             }
         }
-        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-            // No message yet — just wait a bit and try again
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        Err(e) => eprintln!("Failed to receive data: {}", e),
     }
+}
+
+fn run_udp_upload(socket: &UdpSocket, client: std::net::SocketAddr) {
+    let data = [b'U'; 8192];
+    let start_time = Instant::now();
+    let mut total_bytes: u64 = 0;
+
+    while start_time.elapsed() < Duration::from_secs(5) {
+        match socket.send_to(&data, &client) {
+            Ok(size) => total_bytes += size as u64,
+            Err(e) => {
+                eprintln!("Send error: {}", e);
+                break;
+            }
+        }
+    }
+
+    let _ = socket.send_to(b"UPLOAD_DONE\n", &client);
+    println!(
+        "Sent {} bytes to client {} in 5 seconds (upload test)",
+        total_bytes, client
+    );
+}
+
+fn run_udp_download(socket: &UdpSocket, client: std::net::SocketAddr) {
+    let data = [b'D'; 8192];
+    let start_time = Instant::now();
+    let mut total_bytes: u64 = 0;
+
+    while start_time.elapsed() < Duration::from_secs(5) {
+        match socket.send_to(&data, &client) {
+            Ok(size) => total_bytes += size as u64,
+            Err(e) => {
+                eprintln!("Send error: {}", e);
+                break;
+            }
+        }
+    }
+
+    // Send termination message
+    let _ = socket.send_to(b"DOWNLOAD_DONE\n", &client);
+    println!(
+        "Sent {} bytes to client {} in 5 seconds",
+        total_bytes, client
+    );
 }
