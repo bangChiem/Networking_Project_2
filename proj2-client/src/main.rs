@@ -5,8 +5,9 @@ use iced::{
 };
 
 use std::{
-    net::{TcpStream, UdpSocket},
-    io::{BufReader, prelude::*},
+    net::{TcpStream, UdpSocket, Shutdown},
+    io::{self, BufReader, prelude::*},
+    time::{Instant, Duration},
 };
 
 fn main() -> iced::Result {
@@ -14,6 +15,39 @@ fn main() -> iced::Result {
         .window_size(Size::new(800.0, 600.0))
         .theme(|_| Theme::Dark)
         .run_with(|| NetworkConfigApp::new())
+}
+
+/* function to calculate value as test runs (every 0.5 secs) */
+fn calculate_mega_bps(bytes: u64, secs: f64) -> f64 {
+    let bits= (bytes as f64) * 8.0;
+    let mega_bits = bits * 0.000001;
+    let mega_bps = mega_bits / (secs as f64);
+    mega_bps
+}
+
+/* reads in one line from a TCP stream */
+fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
+    let mut total_bytes = 0u64;
+    let mut buffer = [0; 1];
+
+    loop {
+        let bytes_read = stream.read(&mut buffer)?;
+        if bytes_read == 0 {
+            // EOF
+            break;
+        }
+
+        let byte = buffer[0];
+        total_bytes += 1;
+
+        buf.push(byte as char);
+
+        if byte == b'\n' {
+            break;
+        }
+    }
+
+    Ok(total_bytes as usize)
 }
 
 async fn tcp_test(ip: String, port: String) -> String {
@@ -26,14 +60,15 @@ async fn tcp_test(ip: String, port: String) -> String {
     // Send initial message
     let response = "HELLO TCP\n";
     stream.write_all(response.as_bytes()).expect("Failed to send");
+    
+    // Decide number of seconds to send data
+    let num_seconds = 5;
 
-    // Read server acknowledgement
-    let mut buf_reader = BufReader::new(stream.try_clone().unwrap());
-
+    // Loop while connection is open
     loop {
 
         let mut msg = String::new();
-        match buf_reader.read_line(&mut msg) {
+        match read_line(&mut stream, &mut msg) {
 
             Ok(0) => {
                 break;
@@ -46,23 +81,75 @@ async fn tcp_test(ip: String, port: String) -> String {
                 println!("Received from server: {}", msg);
 
                 if msg == "READY" {
-                    // Send data for 5 seconds
-                    let response = "SENDING 5\n";
+                    // Send data for _ seconds
+                    let response = format!("SENDING {}\n", num_seconds);
                     stream.write_all(response.as_bytes()).expect("Failed to send");
-                    /*  repeatedly send data for five seconds in a loop */
+
+                    // Create start and end times
+                    let start = Instant::now();
+
+                    // Set up data to send
+                    let data = vec![0; 1024]; // 1 KB of 0s
+
+                    // loop until the duration has passed
+                    while start.elapsed().as_secs_f64() < 5.0 {
+                        stream.write_all(&data).unwrap();
+                    }
+
+                    let eof = "UPLOAD_DONE\n";
+                    stream.write_all(eof.as_bytes()).unwrap();
+
                 }
 
-                if msg_parts[0] == "OK" {
+                if msg_parts[0] == "RECEIVED" {
 
-                    // Calculate Mbps value using number of bytes
-                    let num_bytes : i32 = msg_parts[1].parse().expect("Failed to get int from string");
+                    // Get number of bytes from server
+                    let num_bytes : u64 = msg_parts[1].parse().expect("Failed to get int from string");
                     println!("Server received {} bytes", num_bytes);
 
+                    // Calculate Mbps
+                    let mega_bps = calculate_mega_bps(num_bytes, 5.0);
+                    println!("Upload speed: {:.2} Mbps", mega_bps);
+
                     // Send ready for download message
-                    let response = "OK DOWNLOAD\n";
+                    let response = "READY\n";
                     stream.write_all(response.as_bytes()).expect("Failed to send");
                 }
 
+                if msg_parts[0] == "SENDING" {
+
+                    let mut num_bytes: usize = 0;
+
+                    let start = Instant::now();
+
+                    // count bytes
+                    loop {
+                        let mut buf = [0u8; 1024 * 8]; // 8KB bytes at a time
+                        let n = stream.read(&mut buf).unwrap();
+                        if n == 0 { break; } // connection closed
+
+                        num_bytes += n;
+
+                        // peek into buffer to check for message
+                        if buf[..n].ends_with(b"UPLOAD_DONE\n") {
+                            // subtract bytes from message
+                            num_bytes -= "UPLOAD_DONE\n".len();
+                            break;
+                        }
+                    }
+
+                    // calculate download speed and display
+                    let mega_bps = calculate_mega_bps(num_bytes as u64, num_seconds as f64);
+                    println!("Download speed: {:.2} Mbps", mega_bps);
+                    
+                    let response = format!("RECEIVED {}\n", num_bytes);
+                    stream.write_all(response.as_bytes()).unwrap();
+                }
+
+                if msg == "CLOSE" {
+                    // Server ends connection
+                    break;
+                }
 
             }
             Err(e) => {
@@ -79,9 +166,111 @@ async fn tcp_test(ip: String, port: String) -> String {
 
 }
 
-fn _udp_test(_ip: String, _port: String){
-    println!("Testing on UDP");
+fn udp_test(ip: String, port: String) -> String {
+    let socket = UdpSocket::bind("0.0.0.0:0").expect("Couldn't bind UDP socket");
+    socket
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("Couldn't set read timeout");
+
+    let server_addr = format!("{}:{}", ip, port);
+    println!("Starting UDP test with server at {}", server_addr);
+
+    let mut recv_buf = [0u8; 8192];
+
+    /* ---------------------------- UPLOAD TEST ---------------------------- */
+    println!("Starting upload test (server → client) for 5 seconds...");
+    let _ = socket.send_to(b"START_UPLOAD\n", &server_addr);
+
+    let start_ul = Instant::now();
+    let mut last_report: Instant = start_ul;
+    let mut bytes_received: u64 = 0;
+    let mut bytes_sent: u64 = 0; 
+
+
+    while start_ul.elapsed() < Duration::from_secs(6) {
+        match socket.recv_from(&mut recv_buf) {
+            Ok((size, _src)) => {
+                if recv_buf[..size].ends_with(b"UPLOAD_DONE\n") {
+                    break;
+                }
+                bytes_sent += size as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => {
+                eprintln!("Receive error: {}", e);
+                break;
+            }
+        }
+
+        // Every 0.5 seconds, report upload/download rates
+        let now = Instant::now();
+        if now.duration_since(last_report) >= Duration::from_millis(500) {
+            let elapsed_secs = now.duration_since(start_ul).as_secs_f64();
+            let upload_mbps = calculate_mega_bps(bytes_sent, elapsed_secs);
+            let download_mbps = calculate_mega_bps(bytes_received, elapsed_secs);
+
+            println!(
+                "Time Elapsed {:.1}s | Upload: {:.3} Mbps | Download: {:.3} Mbps",
+                elapsed_secs, upload_mbps, download_mbps
+            );
+            last_report = now;
+        }
+    }
+
+    let total_ul_secs = start_ul.elapsed().as_secs_f64();
+    let upload_mbps = calculate_mega_bps(bytes_sent, total_ul_secs);
+    println!("Upload phase done → Upload: {:.3} Mbps", upload_mbps);
+
+    /* ---------------------------- DOWNLOAD TEST ---------------------------- */
+    std::thread::sleep(Duration::from_secs(1)); // short gap
+
+    let _ = socket.send_to(b"READY_FOR_DOWNLOAD\n", &server_addr);
+    println!("Starting download test (server → client) for 5 seconds...");
+
+    let start_dl = Instant::now();
+    let mut bytes_received: u64 = 0;
+    bytes_sent = 0;
+
+    while start_dl.elapsed() < Duration::from_secs(6) {
+        match socket.recv_from(&mut recv_buf) {
+            Ok((size, _src)) => {
+                if recv_buf[..size].ends_with(b"DOWNLOAD_DONE\n") {
+                    break;
+                }
+                bytes_received += size as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => {
+                eprintln!("Receive error: {}", e);
+                break;
+            }
+        }
+
+        // Every 0.5 seconds, report upload/download rates
+        let now = Instant::now();
+        if now.duration_since(last_report) >= Duration::from_millis(500) {
+            let elapsed_secs = now.duration_since(start_ul).as_secs_f64();
+            let upload_mbps = calculate_mega_bps(bytes_sent, elapsed_secs);
+            let download_mbps = calculate_mega_bps(bytes_received, elapsed_secs);
+
+            println!(
+                "Time Elapsed {:.1}s | Upload: {:.3} Mbps | Download: {:.3} Mbps",
+                elapsed_secs, upload_mbps, download_mbps
+            );
+            last_report = now;
+        }
+    }
+
+    let total_dl_secs = start_dl.elapsed().as_secs_f64();
+    let download_mbps = calculate_mega_bps(bytes_received, total_dl_secs);
+    println!("Download phase done → Download: {:.3} Mbps", download_mbps);
+
+    format!(
+        "UDP test complete.\nUpload: {:.3} Mbps\nDownload: {:.3} Mbps",
+        upload_mbps, download_mbps
+    )
 }
+
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -90,6 +279,7 @@ pub enum Message {
     ProtocolToggled(bool),
     Connect,
     TCPFinished(String),
+    UDPFinished(String), 
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -149,13 +339,24 @@ impl NetworkConfigApp {
                     "Connecting to {}:{} using {}",
                     ip, port, protocol
                 );
-                return Task::perform(
-                    tcp_test(ip, port),
-                    Message::TCPFinished
-                );
+                
+                if self.is_tcp {
+                    return Task::perform(
+                        tcp_test(ip, port),
+                        Message::TCPFinished
+                    );
+                } else {
+                    return Task::perform(
+                        async move { udp_test(ip, port) },
+                        Message::UDPFinished
+                    );
+                }
             }
-            Message::TCPFinished(result) => {
+            Message::TCPFinished(result) => {  // Add this handler
                 println!("TCP testing complete: {}", result);
+            }
+            Message::UDPFinished(result) => {  // Add this handler
+                println!("UDP testing complete: {}", result);
             }
         }
         Task::none()
