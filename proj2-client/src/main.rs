@@ -64,9 +64,6 @@ fn tcp_test(ip: String, port: String) -> String {
     // Decide number of seconds to send data
     let num_seconds = 5;
 
-    //let upload_speed: f64 = 0.0;
-    //let download_speed: f64 = 0.0;
-
     // Loop while connection is open
     loop {
 
@@ -336,6 +333,8 @@ pub struct NetworkConfigApp {
     port: String,
     is_tcp: bool,
     background_image: iced::widget::image::Handle,
+    upload_speed: f64,
+    download_speed: f64,
 }
 
 impl NetworkConfigApp {
@@ -348,6 +347,8 @@ impl NetworkConfigApp {
                 port: String::from("8080"),
                 is_tcp: true,
                 background_image,
+                upload_speed: 0.0,
+                download_speed: 0.0,
             },
             Task::none(),
         )
@@ -385,10 +386,10 @@ impl NetworkConfigApp {
                     );
                 }
             }
-            Message::TCPFinished(result) => {  // Add this handler
+            Message::TCPFinished(result) => {
                 println!("TCP testing complete: {}", result);
             }
-            Message::UDPFinished(result) => {  // Add this handler
+            Message::UDPFinished(result) => {
                 println!("UDP testing complete: {}", result);
             }
         }
@@ -411,9 +412,17 @@ impl NetworkConfigApp {
                     .size(32)
                     .color(Color::WHITE),
 
-                // Increased spacing to push inputs lower
-                text("").size(100),
+                
+                column![
+                    text(format!("Upload: {} Mbps", &self.upload_speed))
+                        .size(20),
+                    text(format!("Download: {} Mbps", &self.download_speed))
+                        .size(20),
+                ],
 
+                // Increased spacing to push inputs lower
+                text("").size(20),
+                
                 // IP Address input
                 column![
                     text("IP Address:")
