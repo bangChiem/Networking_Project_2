@@ -50,7 +50,7 @@ fn read_line(stream: &mut TcpStream, buf: &mut String) -> io::Result<usize> {
     Ok(total_bytes as usize)
 }
 
-fn tcp_test(ip: String, port: String) -> String {
+fn tcp_test(ip: String, port: String) -> (f64, f64) {
 
     println!("Testing on TCP");
 
@@ -63,6 +63,9 @@ fn tcp_test(ip: String, port: String) -> String {
     
     // Decide number of seconds to send data
     let num_seconds = 5;
+
+    let mut upload: f64 = 0.0;
+    let mut download: f64 = 0.0;
 
     // Loop while connection is open
     loop {
@@ -125,6 +128,7 @@ fn tcp_test(ip: String, port: String) -> String {
 
                     // Calculate Mbps
                     let mega_bps = calculate_mega_bps(num_bytes, 5.0);
+                    upload = mega_bps;
                     println!("Upload speed: {:.2} Mbps", mega_bps);
 
                     // Send ready for download message
@@ -170,6 +174,7 @@ fn tcp_test(ip: String, port: String) -> String {
 
                     // calculate download speed and display
                     let mega_bps = calculate_mega_bps(num_bytes as u64, num_seconds as f64);
+                    download = mega_bps;
                     println!("Download speed: {:.2} Mbps", mega_bps);
                     
                     let response = format!("RECEIVED {}\n", num_bytes);
@@ -192,11 +197,11 @@ fn tcp_test(ip: String, port: String) -> String {
 
     }
 
-    "TCP test complete".to_string()
+    (upload, download)
 
 }
 
-fn udp_test(ip: String, port: String) -> String {
+fn udp_test(ip: String, port: String) -> (f64, f64) {
     let socket = UdpSocket::bind("0.0.0.0:0").expect("Couldn't bind UDP socket");
     socket
         .set_read_timeout(Some(Duration::from_millis(200)))
@@ -295,10 +300,8 @@ fn udp_test(ip: String, port: String) -> String {
     let download_mbps = calculate_mega_bps(bytes_received, total_dl_secs);
     println!("Download phase done → Download: {:.3} Mbps", download_mbps);
 
-    format!(
-        "UDP test complete.\nUpload: {:.3} Mbps\nDownload: {:.3} Mbps",
-        upload_mbps, download_mbps
-    )
+    (upload_mbps, download_mbps)
+
 }
 
 
@@ -308,8 +311,8 @@ pub enum Message {
     PortChanged(String),
     ProtocolToggled(bool),
     Connect,
-    TCPFinished(String),
-    UDPFinished(String), 
+    TCPFinished((f64, f64)),
+    UDPFinished((f64, f64)), 
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -386,11 +389,15 @@ impl NetworkConfigApp {
                     );
                 }
             }
-            Message::TCPFinished(result) => {
-                println!("TCP testing complete: {}", result);
+            Message::TCPFinished(speed) => {
+                println!("TCP testing complete");
+                self.upload_speed = speed.0;
+                self.download_speed = speed.1;
             }
-            Message::UDPFinished(result) => {
-                println!("UDP testing complete: {}", result);
+            Message::UDPFinished(speed) => {
+                println!("UDP testing complete");
+                self.upload_speed = speed.0;
+                self.download_speed = speed.1;
             }
         }
         Task::none()
@@ -414,9 +421,9 @@ impl NetworkConfigApp {
 
                 
                 column![
-                    text(format!("Upload: {} Mbps", &self.upload_speed))
+                    text(format!("Upload: {:.2} Mbps", &self.upload_speed))
                         .size(20),
-                    text(format!("Download: {} Mbps", &self.download_speed))
+                    text(format!("Download: {:.2} Mbps", &self.download_speed))
                         .size(20),
                 ],
 
